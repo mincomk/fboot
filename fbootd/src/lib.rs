@@ -6,6 +6,8 @@ pub mod console;
 pub mod domain;
 pub mod error;
 pub mod events;
+#[cfg(feature = "frontend")]
+pub mod frontend;
 pub mod ipxe;
 pub mod mcp;
 pub mod ports;

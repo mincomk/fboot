@@ -75,7 +75,7 @@ export function ServerDetailPage() {
 
       <DetailLayout
         title={view.server.friendly_name}
-        subtitle={view.server.primary_mac}
+        subtitle={view.server.primary_mac ?? undefined}
         recent={recent}
         activeId={id}
         sections={SECTIONS}

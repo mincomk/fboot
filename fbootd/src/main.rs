@@ -9,13 +9,9 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
 
-    let config = fbootd::config::Config::from_env();
+    let config = fbootd::config::Config::load()?;
 
-    let stdio_mcp = std::env::var("FBOOTD_MCP_STDIO")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-
-    if stdio_mcp {
+    if config.mcp_stdio {
         tracing::info!("starting fbootd MCP server over stdio");
         let state = fbootd::build_state(config).await?;
         fbootd::mcp::serve_stdio(state).await?;

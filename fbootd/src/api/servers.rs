@@ -328,7 +328,7 @@ mod tests {
     async fn test_state() -> AppState {
         let pool = db::connect("sqlite::memory:?cache=shared").await.unwrap();
         AppState {
-            config: Arc::new(Config::from_env()),
+            config: Arc::new(Config::load().unwrap()),
             servers: Arc::new(db::SqliteServerRepo::new(pool.clone())),
             bootables: Arc::new(db::SqliteBootableRepo::new(pool.clone())),
             boot_config: Arc::new(db::SqliteBootConfigRepo::new(pool.clone())),

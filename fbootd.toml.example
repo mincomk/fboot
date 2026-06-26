@@ -1,0 +1,55 @@
+# fbootd configuration — sample file.
+# Loaded from CONFIG_PATH (default /etc/fbootd.toml). Every key optional;
+# environment variables override these values. RUST_LOG is env-only
+# (logging initializes before this file loads).
+
+# IP advertised to PXE clients as next-server (TFTP) and embedded in iPXE
+# script URLs. Env: FBOOTD_ADVERTISE_IP. Default "0.0.0.0".
+# advertise_ip = "0.0.0.0"
+
+[storage]
+# SQLite database path (created if missing). Env: FBOOTD_DB. Default "fbootd.db".
+# db_path = "fbootd.db"
+# Directory for uploaded bootable image blobs. Env: FBOOTD_BLOB_DIR. Default "blobs".
+# blob_dir = "blobs"
+
+[listen]
+# JSON/WebSocket API. Env: FBOOTD_API_ADDR. Default "0.0.0.0:8080".
+# api_addr = "0.0.0.0:8080"
+# HTTP boot server. Env: FBOOTD_HTTP_BOOT_ADDR. Default "0.0.0.0:8081".
+# http_boot_addr = "0.0.0.0:8081"
+# TFTP server (port 69 needs CAP_NET_BIND_SERVICE/root). Env: FBOOTD_TFTP_ADDR. Default "0.0.0.0:69".
+# tftp_addr = "0.0.0.0:69"
+# ProxyDHCP (port 67 needs CAP_NET_BIND_SERVICE/root). Env: FBOOTD_DHCP_ADDR. Default "0.0.0.0:67".
+# dhcp_addr = "0.0.0.0:67"
+# ProxyDHCP (port 4011). Env: FBOOTD_DHCP_PROXY_ADDR. Default "0.0.0.0:4011".
+# dhcp_proxy_addr = "0.0.0.0:4011"
+
+[ipmi]
+# Default IPMI credentials, overridable per-server via the API.
+# Env: FBOOTD_IPMI_USER. Default "admin".
+# user = "admin"
+# Env: FBOOTD_IPMI_PASS. Default "admin".
+# pass = "admin"
+# lanplus cipher suite (-C). Env: FBOOTD_IPMI_CIPHER. Default 3.
+# cipher = 3
+# Use the in-memory mock IPMI controller instead of ipmitool (dev/CI).
+# Env: FBOOTD_IPMI_MOCK. Default false.
+# mock = false
+
+[intervals]
+# Background task intervals, in seconds.
+# Env: FBOOTD_STATUS_INTERVAL. Default 30.
+# status = 30
+# Env: FBOOTD_STATS_INTERVAL. Default 60.
+# stats = 60
+# Env: FBOOTD_ARP_INTERVAL. Default 15.
+# arp = 15
+
+[mcp]
+# If set, serve the MCP streamable-HTTP transport on this address.
+# Env: FBOOTD_MCP_HTTP_ADDR. Default unset (disabled).
+# http_addr = "0.0.0.0:8090"
+# Run as an MCP stdio server instead of the HTTP API (for MCP clients).
+# Env: FBOOTD_MCP_STDIO. Default false.
+# stdio = false

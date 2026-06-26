@@ -23,7 +23,7 @@ async fn health() -> Json<serde_json::Value> {
 }
 
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/health", get(health))
         .merge(servers::router())
         .merge(bootables::router())
@@ -32,7 +32,12 @@ pub fn router(state: AppState) -> Router {
         .merge(stats::router())
         .merge(scan::router())
         .merge(ws::router())
-        .merge(console::router())
+        .merge(console::router());
+
+    #[cfg(feature = "frontend")]
+    let router = router.fallback(crate::frontend::static_handler);
+
+    router
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
