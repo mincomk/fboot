@@ -30,7 +30,10 @@ async fn tick(state: &AppState) -> crate::error::Result<()> {
             Some(mac) => state.arp.ip_for_mac(mac).await.ok().flatten(),
             None => None,
         };
-        let ipmi_ip = state.arp.ip_for_mac(&server.ipmi_mac).await.ok().flatten();
+        let ipmi_ip = match &server.ipmi_mac {
+            Some(mac) => state.arp.ip_for_mac(mac).await.ok().flatten(),
+            None => None,
+        };
 
         let online = match ip {
             Some(addr) => tcp_reachable(addr).await,

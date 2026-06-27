@@ -11,7 +11,8 @@ pub struct Server {
     pub id: Uuid,
     #[serde(default)]
     pub primary_mac: Option<Mac>,
-    pub ipmi_mac: Mac,
+    #[serde(default)]
+    pub ipmi_mac: Option<Mac>,
     pub friendly_name: String,
     pub hostname: Option<String>,
     pub metadata: BTreeMap<String, String>,
@@ -23,7 +24,8 @@ pub struct Server {
 pub struct NewServer {
     #[serde(default)]
     pub primary_mac: Option<Mac>,
-    pub ipmi_mac: Mac,
+    #[serde(default)]
+    pub ipmi_mac: Option<Mac>,
     pub friendly_name: String,
     #[serde(default)]
     pub hostname: Option<String>,
@@ -36,7 +38,7 @@ pub struct UpdateServer {
     #[serde(default)]
     pub primary_mac: Option<Option<Mac>>,
     #[serde(default)]
-    pub ipmi_mac: Option<Mac>,
+    pub ipmi_mac: Option<Option<Mac>>,
     #[serde(default)]
     pub friendly_name: Option<String>,
     #[serde(default)]

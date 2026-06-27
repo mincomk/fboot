@@ -47,7 +47,8 @@ pub struct ServerIdReq {
 pub struct CreateServerReq {
     #[serde(default)]
     pub primary_mac: Option<String>,
-    pub ipmi_mac: String,
+    #[serde(default)]
+    pub ipmi_mac: Option<String>,
     pub friendly_name: String,
     #[serde(default)]
     pub hostname: Option<String>,
@@ -281,7 +282,7 @@ impl Fbootd {
     }
 
     #[tool(
-        description = "Create a new server (optional primary_mac, ipmi_mac, friendly_name, optional hostname)"
+        description = "Create a new server (optional primary_mac, optional ipmi_mac, friendly_name, optional hostname)"
     )]
     async fn create_server(
         &self,
@@ -295,7 +296,9 @@ impl Fbootd {
             .map_err(|e| ErrorData::invalid_params(format!("invalid mac: {e}"), None))?;
         let ipmi_mac = req
             .ipmi_mac
-            .parse()
+            .as_deref()
+            .map(str::parse)
+            .transpose()
             .map_err(|e| ErrorData::invalid_params(format!("invalid ipmi mac: {e}"), None))?;
         let server = self
             .state
@@ -512,9 +515,9 @@ impl Fbootd {
             None => None,
         };
         let ipmi_mac = match req.ipmi_mac {
-            Some(s) => Some(s.parse().map_err(|e| {
+            Some(s) => Some(Some(s.parse().map_err(|e| {
                 ErrorData::invalid_params(format!("invalid ipmi mac: {e}"), None)
-            })?),
+            })?)),
             None => None,
         };
         let update = UpdateServer {

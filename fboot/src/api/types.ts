@@ -10,7 +10,7 @@ export type BootableSource = 'file' | 'url'
 export interface Server {
   id: Uuid
   primary_mac?: string | null
-  ipmi_mac: string
+  ipmi_mac?: string | null
   friendly_name: string
   hostname?: string | null
   metadata: Record<string, string>
@@ -20,7 +20,7 @@ export interface Server {
 
 export interface NewServer {
   primary_mac?: string | null
-  ipmi_mac: string
+  ipmi_mac?: string | null
   friendly_name: string
   hostname?: string | null
   metadata?: Record<string, string>
@@ -30,7 +30,7 @@ export interface UpdateServer {
   friendly_name?: string
   hostname?: string | null
   primary_mac?: string | null
-  ipmi_mac?: string
+  ipmi_mac?: string | null
 }
 
 export interface BootableFile {

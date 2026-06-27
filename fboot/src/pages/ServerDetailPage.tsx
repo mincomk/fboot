@@ -3,7 +3,6 @@ import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Info, HardDrive, KeyRound, TerminalSquare, Power } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RefreshButton } from '@/components/shared/RefreshButton'
-import { PowerButton } from '@/components/shared/PowerButton'
 import { DetailLayout, type DetailSection } from '@/features/server-detail/DetailLayout'
 import { InfoSection } from '@/features/server-detail/sections/InfoSection'
 import { BootManagementSection } from '@/features/server-detail/sections/BootManagementSection'
@@ -12,8 +11,8 @@ import { TerminalSection } from '@/features/server-detail/sections/TerminalSecti
 import { PowerSection } from '@/features/server-detail/sections/PowerSection'
 import { useLoadServers, useServerView } from '@/hooks/useServers'
 import { useRecentServers } from '@/hooks/useRecentServers'
-import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { fetchBootConfig, fetchServers, powerAction } from '@/store/slices/servers'
+import { useAppDispatch } from '@/store/hooks'
+import { fetchBootConfig, fetchServers } from '@/store/slices/servers'
 import { fetchStats } from '@/store/slices/stats'
 
 const SECTIONS: DetailSection[] = [
@@ -26,6 +25,10 @@ const SECTIONS: DetailSection[] = [
 
 const SECTION_KEYS = SECTIONS.map((s) => s.key)
 
+// IPMI-related items (IPMI, Terminal, On/Off) and the power button are hidden from
+// the sidebar nav. Their views stay reachable by direct URL via the full SECTIONS list.
+const VISIBLE_SECTIONS = SECTIONS.filter((s) => s.key === 'info' || s.key === 'boot')
+
 export function ServerDetailPage() {
   const { id, section } = useParams<{ id: string; section: string }>()
   const dispatch = useAppDispatch()
@@ -33,9 +36,6 @@ export function ServerDetailPage() {
   const { recent, visit } = useRecentServers()
   const { loading, statsLoading } = useLoadServers()
   const view = useServerView(id)
-  const power = useAppSelector((s) =>
-    id ? (s.stats.latest[id]?.power_status ?? 'unknown') : 'unknown',
-  )
 
   useEffect(() => {
     if (id) visit(id)
@@ -78,13 +78,7 @@ export function ServerDetailPage() {
         subtitle={view.server.primary_mac ?? undefined}
         recent={recent}
         activeId={id}
-        sections={SECTIONS}
-        powerSlot={
-          <PowerButton
-            status={power}
-            onAction={(action) => dispatch(powerAction({ id, action }))}
-          />
-        }
+        sections={VISIBLE_SECTIONS}
       >
         {active === 'info' && <InfoSection view={view} />}
         {active === 'boot' && <BootManagementSection view={view} />}

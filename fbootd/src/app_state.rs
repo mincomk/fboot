@@ -38,14 +38,13 @@ impl AppState {
         let host = match &override_creds {
             Some(c) if !c.host.is_empty() => c.host.clone(),
             _ => {
-                self.arp
-                    .ip_for_mac(&server.ipmi_mac)
-                    .await?
-                    .map(|ip| ip.to_string())
-                    .or_else(|| server.hostname.clone())
-                    .ok_or_else(|| {
-                        AppError::BadRequest("no IPMI host known for server".to_string())
-                    })?
+                let from_arp = match &server.ipmi_mac {
+                    Some(mac) => self.arp.ip_for_mac(mac).await?.map(|ip| ip.to_string()),
+                    None => None,
+                };
+                from_arp.or_else(|| server.hostname.clone()).ok_or_else(|| {
+                    AppError::BadRequest("no IPMI host known for server".to_string())
+                })?
             }
         };
 

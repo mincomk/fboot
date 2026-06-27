@@ -39,7 +39,7 @@ async fn create(
     Json(input): Json<NewServer>,
 ) -> Result<Json<Server>> {
     let server = state.servers.create(input).await?;
-    tracing::info!(id = %server.id, name = %server.friendly_name, ipmi_mac = %server.ipmi_mac, primary_mac = ?server.primary_mac, "server created");
+    tracing::info!(id = %server.id, name = %server.friendly_name, ipmi_mac = ?server.ipmi_mac, primary_mac = ?server.primary_mac, "server created");
     state
         .events
         .publish(ServerEvent::ServerAdded {
@@ -407,6 +407,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_server_without_ipmi_mac() {
+        let state = test_state().await;
+        let app = crate::api::router(state);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/servers")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"primary_mac":"aa:bb:cc:dd:ee:01","friendly_name":"no-ipmi"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let created = body_json(resp).await;
+        assert_eq!(created["friendly_name"], "no-ipmi");
+        assert!(created["ipmi_mac"].is_null());
+    }
+
+    #[tokio::test]
     async fn get_unknown_server_is_404() {
         let state = test_state().await;
         let app = crate::api::router(state);
@@ -510,7 +534,7 @@ mod tests {
             .servers
             .create(NewServer {
                 primary_mac: Some(registered.clone()),
-                ipmi_mac: "cc:cc:cc:cc:cc:cc".parse().unwrap(),
+                ipmi_mac: Some("cc:cc:cc:cc:cc:cc".parse().unwrap()),
                 friendly_name: "node".into(),
                 hostname: None,
                 metadata: Default::default(),

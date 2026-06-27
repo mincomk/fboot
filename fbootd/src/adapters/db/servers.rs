@@ -38,9 +38,10 @@ impl SqliteServerRepo {
             .map(|s| s.parse::<Mac>())
             .transpose()
             .map_err(|_| AppError::Internal("bad mac in db".into()))?;
-        let ipmi_mac: Mac = row
-            .get::<String, _>("ipmi_mac")
-            .parse()
+        let ipmi_mac = row
+            .get::<Option<String>, _>("ipmi_mac")
+            .map(|s| s.parse::<Mac>())
+            .transpose()
             .map_err(|_| AppError::Internal("bad ipmi mac in db".into()))?;
         let metadata = self.load_metadata(id).await?;
         Ok(Server {
@@ -107,16 +108,15 @@ impl ServerRepo for SqliteServerRepo {
             }
         }
 
-        let existing: Option<(String,)> =
-            sqlx::query_as("SELECT id FROM servers WHERE ipmi_mac = ?")
-                .bind(input.ipmi_mac.to_string())
-                .fetch_optional(&mut *tx)
-                .await?;
-        if existing.is_some() {
-            return Err(AppError::Conflict(format!(
-                "ipmi mac {} exists",
-                input.ipmi_mac
-            )));
+        if let Some(ipmi_mac) = &input.ipmi_mac {
+            let existing: Option<(String,)> =
+                sqlx::query_as("SELECT id FROM servers WHERE ipmi_mac = ?")
+                    .bind(ipmi_mac.to_string())
+                    .fetch_optional(&mut *tx)
+                    .await?;
+            if existing.is_some() {
+                return Err(AppError::Conflict(format!("ipmi mac {ipmi_mac} exists")));
+            }
         }
 
         sqlx::query(
@@ -125,7 +125,7 @@ impl ServerRepo for SqliteServerRepo {
         )
         .bind(id.to_string())
         .bind(input.primary_mac.as_ref().map(|m| m.to_string()))
-        .bind(input.ipmi_mac.to_string())
+        .bind(input.ipmi_mac.as_ref().map(|m| m.to_string()))
         .bind(&input.friendly_name)
         .bind(&input.hostname)
         .bind(&now)
@@ -163,7 +163,7 @@ impl ServerRepo for SqliteServerRepo {
         }
         if let Some(ipmi_mac) = input.ipmi_mac {
             sqlx::query("UPDATE servers SET ipmi_mac = ?, updated_at = ? WHERE id = ?")
-                .bind(ipmi_mac.to_string())
+                .bind(ipmi_mac.map(|m| m.to_string()))
                 .bind(&now)
                 .bind(id.to_string())
                 .execute(&self.pool)

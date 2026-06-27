@@ -37,7 +37,7 @@ export function InfoSection({ view }: { view: ServerView }) {
   const [name, setName] = useState(server.friendly_name)
   const [hostname, setHostname] = useState(server.hostname ?? '')
   const [primaryMac, setPrimaryMac] = useState(server.primary_mac ?? '')
-  const [ipmiMac, setIpmiMac] = useState(server.ipmi_mac)
+  const [ipmiMac, setIpmiMac] = useState(server.ipmi_mac ?? '')
   const [metaKey, setMetaKey] = useState('')
   const [metaValue, setMetaValue] = useState('')
 
@@ -49,7 +49,7 @@ export function InfoSection({ view }: { view: ServerView }) {
           friendly_name: name.trim(),
           hostname: hostname.trim() || null,
           primary_mac: primaryMac.trim() || null,
-          ipmi_mac: ipmiMac.trim(),
+          ipmi_mac: ipmiMac.trim() || null,
         },
       }),
     ).unwrap()
@@ -85,7 +85,7 @@ export function InfoSection({ view }: { view: ServerView }) {
               className="flex flex-col gap-4"
               onSubmit={(e) => {
                 e.preventDefault()
-                if (name.trim() && ipmiMac.trim()) saveInfo()
+                if (name.trim()) saveInfo()
               }}
             >
               <div className="flex flex-col gap-1.5">
@@ -97,7 +97,7 @@ export function InfoSection({ view }: { view: ServerView }) {
                 <Input id="fhost" value={hostname} onChange={(e) => setHostname(e.target.value)} />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="fipmimac">IPMI MAC</Label>
+                <Label htmlFor="fipmimac">IPMI MAC (optional)</Label>
                 <Input
                   id="fipmimac"
                   placeholder="aa:bb:cc:dd:ee:ff"
@@ -115,7 +115,7 @@ export function InfoSection({ view }: { view: ServerView }) {
                 />
               </div>
               <div className="flex gap-2">
-                <Button type="submit" disabled={!name.trim() || !ipmiMac.trim()}>
+                <Button type="submit" disabled={!name.trim()}>
                   Save
                 </Button>
                 <Button
@@ -125,7 +125,7 @@ export function InfoSection({ view }: { view: ServerView }) {
                     setName(server.friendly_name)
                     setHostname(server.hostname ?? '')
                     setPrimaryMac(server.primary_mac ?? '')
-                    setIpmiMac(server.ipmi_mac)
+                    setIpmiMac(server.ipmi_mac ?? '')
                     setEditing(false)
                   }}
                 >

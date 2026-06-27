@@ -25,7 +25,7 @@ export function AddServerDialog() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const valid = ipmiMac.trim().length > 0 && name.trim().length > 0
+  const valid = name.trim().length > 0
 
   const submit = async () => {
     setError(null)
@@ -34,7 +34,7 @@ export function AddServerDialog() {
       await dispatch(
         createServer({
           primary_mac: mac.trim() || null,
-          ipmi_mac: ipmiMac.trim(),
+          ipmi_mac: ipmiMac.trim() || null,
           friendly_name: name.trim(),
           hostname: hostname.trim() || null,
         }),
@@ -72,7 +72,7 @@ export function AddServerDialog() {
           }}
         >
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ipmi-mac">IPMI MAC address</Label>
+            <Label htmlFor="ipmi-mac">IPMI MAC address (optional)</Label>
             <Input
               id="ipmi-mac"
               placeholder="aa:bb:cc:dd:ee:ff"
