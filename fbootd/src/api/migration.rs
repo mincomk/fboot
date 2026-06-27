@@ -17,6 +17,7 @@ use gzp::ZWriter;
 use serde_json::{json, Value};
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{Connection, SqliteConnection};
+use tokio::io::AsyncWriteExt;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::app_state::AppState;
@@ -44,9 +45,20 @@ fn clean_db_path(db_path: &str) -> PathBuf {
     PathBuf::from(s)
 }
 
-fn unique_tmp(prefix: &str) -> PathBuf {
+/// A unique temp path inside `dir`. Keeping import/snapshot scratch on the data filesystem (not
+/// `/tmp`) avoids tmpfs RAM blowups on small hosts and lets the final blob swap be an atomic
+/// `rename` instead of a cross-device byte-copy.
+fn tmp_in(dir: &Path, prefix: &str) -> PathBuf {
     let ts = chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0);
-    std::env::temp_dir().join(format!("{prefix}-{}-{}", std::process::id(), ts))
+    dir.join(format!(".{prefix}-{}-{}", std::process::id(), ts))
+}
+
+/// The directory containing `path`, or `.` when it has no usable parent.
+fn parent_or_dot(path: &Path) -> PathBuf {
+    path.parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Produce a consistent on-disk snapshot of the DB via `VACUUM INTO` to a fresh temp file.
@@ -58,7 +70,7 @@ async fn vacuum_snapshot(db_path: &str) -> Result<PathBuf> {
         .busy_timeout(std::time::Duration::from_secs(30));
     let mut conn = SqliteConnection::connect_with(&options).await?;
 
-    let snap = unique_tmp("fbootd-snap");
+    let snap = tmp_in(&parent_or_dot(&clean_db_path(db_path)), "fbootd-snap");
     let snap_str = snap.to_string_lossy().to_string();
     sqlx::query("VACUUM INTO ?")
         .bind(&snap_str)
@@ -207,34 +219,50 @@ fn move_into(from: &Path, to: &Path) -> Result<()> {
 }
 
 async fn import(State(state): State<AppState>, mut multipart: Multipart) -> Result<Json<Value>> {
-    let mut data: Option<Bytes> = None;
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::BadRequest(e.to_string()))?
+    // Scratch lives on the blob filesystem so the upload doesn't land on a RAM-backed /tmp and so
+    // the later blob swap is a rename, not a copy.
+    let scratch_dir = parent_or_dot(Path::new(&state.config.blob_dir));
+
+    // Stream the upload straight to a temp file. Buffering the whole archive in memory (and the
+    // later `to_vec`) doubled RAM use and OOM-killed the process on small hosts (e.g. a 1GB Pi).
+    let upload_path = tmp_in(&scratch_dir, "fbootd-upload");
+    let mut received: u64 = 0;
+    let mut found = false;
     {
-        if field.name() == Some("file") {
-            data = Some(
-                field
-                    .bytes()
+        tokio::fs::create_dir_all(&scratch_dir).await?;
+        let mut file = tokio::fs::File::create(&upload_path).await?;
+        while let Some(mut field) = multipart
+            .next_field()
+            .await
+            .map_err(|e| AppError::BadRequest(e.to_string()))?
+        {
+            if field.name() == Some("file") {
+                found = true;
+                while let Some(chunk) = field
+                    .chunk()
                     .await
-                    .map_err(|e| AppError::BadRequest(e.to_string()))?,
-            );
-            break;
+                    .map_err(|e| AppError::BadRequest(e.to_string()))?
+                {
+                    received += chunk.len() as u64;
+                    file.write_all(&chunk).await?;
+                }
+                break;
+            }
         }
+        file.flush().await?;
     }
-    let data = data.ok_or_else(|| AppError::BadRequest("missing 'file' field".to_string()))?;
-    if data.is_empty() {
+    if !found {
+        let _ = tokio::fs::remove_file(&upload_path).await;
+        return Err(AppError::BadRequest("missing 'file' field".to_string()));
+    }
+    if received == 0 {
+        let _ = tokio::fs::remove_file(&upload_path).await;
         return Err(AppError::BadRequest("uploaded file is empty".to_string()));
     }
-    tracing::info!(bytes = data.len(), "migration import received");
+    tracing::info!(bytes = received, "migration import received");
 
     let db_clean = clean_db_path(&state.config.db_path);
-    let db_dir = db_clean
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
+    let db_dir = parent_or_dot(&db_clean);
 
     // Safety dump of the current state before we overwrite anything.
     let safety_path = db_dir.join("migration.bak.tar.gz");
@@ -246,16 +274,23 @@ async fn import(State(state): State<AppState>, mut multipart: Multipart) -> Resu
     // Extract + swap on disk off the async runtime.
     let blob_dir = state.config.blob_dir.clone();
     let db_target = db_clean.clone();
-    let data_vec = data.to_vec();
+    let upload_for_blocking = upload_path.clone();
+    let scratch_for_blocking = scratch_dir.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
-        let tmp = unique_tmp("fbootd-import");
+        // A sibling of the blob dir (same filesystem, but not inside it — the swap below wipes the
+        // blob dir), so moving the unpacked blobs into place is a rename, not a copy.
+        let tmp = tmp_in(&scratch_for_blocking, "fbootd-import");
         std::fs::create_dir_all(&tmp)?;
 
-        let dec = flate2::read::GzDecoder::new(&data_vec[..]);
+        // Decompress straight from the on-disk upload so memory stays bounded.
+        let file = std::fs::File::open(&upload_for_blocking)?;
+        let dec = flate2::read::GzDecoder::new(std::io::BufReader::new(file));
         let mut archive = tar::Archive::new(dec);
-        archive
+        let unpacked = archive
             .unpack(&tmp)
-            .map_err(|e| AppError::BadRequest(format!("invalid archive: {e}")))?;
+            .map_err(|e| AppError::BadRequest(format!("invalid archive: {e}")));
+        let _ = std::fs::remove_file(&upload_for_blocking);
+        unpacked?;
 
         let new_db = tmp.join("fbootd.db");
         if !new_db.exists() {
