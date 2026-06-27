@@ -17,8 +17,10 @@ jobs:
         include:
           - runner: ubuntu-latest
             target: x86_64-linux
+            triple: x86_64-unknown-linux-musl
           - runner: ubuntu-24.04-arm
             target: aarch64-linux
+            triple: aarch64-unknown-linux-musl
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -34,6 +36,11 @@ jobs:
           cache-dependency-path: fboot/pnpm-lock.yaml
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.triple }}
+
+      - name: Install musl tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -41,11 +48,13 @@ jobs:
 
       - name: Build (frontend + embedded binary)
         run: ./build.sh
+        env:
+          CARGO_BUILD_TARGET: ${{ matrix.triple }}
 
       - name: Stage binary
         run: |
           mkdir -p dist
-          cp fbootd/target/release/fbootd "dist/fbootd-${{ matrix.target }}"
+          cp "fbootd/target/${{ matrix.triple }}/release/fbootd" "dist/fbootd-${{ matrix.target }}"
 
       - uses: actions/upload-artifact@v4
         with:
