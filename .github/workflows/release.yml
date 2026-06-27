@@ -18,9 +18,11 @@ jobs:
           - runner: ubuntu-latest
             target: x86_64-linux
             triple: x86_64-unknown-linux-musl
+            deb_arch: amd64
           - runner: ubuntu-24.04-arm
             target: aarch64-linux
             triple: aarch64-unknown-linux-musl
+            deb_arch: arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
@@ -56,14 +58,32 @@ jobs:
           mkdir -p dist
           cp "fbootd/target/${{ matrix.triple }}/release/fbootd" "dist/fbootd-${{ matrix.target }}"
 
+      - name: Build .deb package
+        run: |
+          # Tag pushes give e.g. v0.1.0 -> 0.1.0; other refs fall back to 0.0.0.
+          version="${GITHUB_REF_NAME#v}"
+          case "$version" in
+            [0-9]*) ;;
+            *) version=0.0.0 ;;
+          esac
+          ./packaging/deb/build-deb.sh \
+            "dist/fbootd-${{ matrix.target }}" \
+            "${{ matrix.deb_arch }}" \
+            "$version" \
+            dist
+
       - uses: actions/upload-artifact@v4
         with:
           name: fbootd-${{ matrix.target }}
-          path: dist/fbootd-${{ matrix.target }}
+          path: |
+            dist/fbootd-${{ matrix.target }}
+            dist/fbootd_*_${{ matrix.deb_arch }}.deb
           if-no-files-found: error
 
       - name: Publish to release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/fbootd-${{ matrix.target }}
+          files: |
+            dist/fbootd-${{ matrix.target }}
+            dist/fbootd_*_${{ matrix.deb_arch }}.deb

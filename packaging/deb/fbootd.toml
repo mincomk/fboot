@@ -1,0 +1,49 @@
+# fbootd base configuration (installed by the Debian package).
+# Loaded from CONFIG_PATH (the systemd unit sets it to /etc/fbootd.toml).
+# Every key is optional; environment variables override these values.
+# RUST_LOG is env-only and is set in the systemd unit, not here.
+
+# IP advertised to PXE clients as next-server (TFTP) and embedded in iPXE
+# script URLs. MUST be set to this host's LAN IP for real PXE boot;
+# 0.0.0.0 only works for local tests. Env: FBOOTD_ADVERTISE_IP.
+advertise_ip = "0.0.0.0"
+
+[storage]
+# Persisted under the systemd StateDirectory (/var/lib/fbootd).
+db_path = "/var/lib/fbootd/fbootd.db"
+blob_dir = "/var/lib/fbootd/blobs"
+
+[listen]
+# JSON/WebSocket API (dashboard + clients).
+api_addr = "0.0.0.0:8080"
+# HTTP boot server (iPXE scripts + kernel/initrd blobs).
+http_boot_addr = "0.0.0.0:8081"
+# TFTP server (PXE boot program).
+tftp_addr = "0.0.0.0:69"
+# ProxyDHCP.
+dhcp_addr = "0.0.0.0:67"
+dhcp_proxy_addr = "0.0.0.0:4011"
+
+[ipmi]
+# Default IPMI credentials, overridable per-server via the API.
+# Requires the `ipmitool` package (Recommended by this package).
+user = "admin"
+pass = "admin"
+# lanplus cipher suite (-C).
+cipher = 3
+# Use the in-memory mock IPMI controller instead of ipmitool (dev/CI).
+mock = false
+
+[intervals]
+# Background task intervals, in seconds.
+status = 30
+stats = 60
+arp = 15
+# How long a cached ARP entry stays valid, in seconds.
+arp_ttl = 300
+
+[mcp]
+# If set, serve the MCP streamable-HTTP transport on this address.
+# http_addr = "0.0.0.0:8090"
+# Run as an MCP stdio server instead of the HTTP API (for MCP clients).
+# stdio = false

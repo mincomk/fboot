@@ -1,0 +1,29 @@
+[Unit]
+Description=fbootd PXE/iPXE boot daemon
+Documentation=https://github.com/minco/fboot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/fbootd
+Environment=CONFIG_PATH=/etc/fbootd.toml
+# RUST_LOG is env-only (logging starts before the config file loads).
+Environment=RUST_LOG=info,fbootd=info
+User=fbootd
+Group=fbootd
+WorkingDirectory=/var/lib/fbootd
+StateDirectory=fbootd
+StateDirectoryMode=0750
+# Ports 67/69/4011 are privileged; grant only the bind capability.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

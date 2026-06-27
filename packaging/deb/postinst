@@ -1,0 +1,28 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  configure)
+    # Create the dedicated system user/group if missing.
+    if ! getent group fbootd >/dev/null; then
+      addgroup --system fbootd
+    fi
+    if ! getent passwd fbootd >/dev/null; then
+      adduser --system --no-create-home --ingroup fbootd \
+        --home /var/lib/fbootd --shell /usr/sbin/nologin fbootd
+    fi
+
+    # StateDirectory= creates /var/lib/fbootd on start, but ensure ownership now.
+    if [ -d /var/lib/fbootd ]; then
+      chown fbootd:fbootd /var/lib/fbootd
+    fi
+    ;;
+esac
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl enable fbootd.service >/dev/null 2>&1 || true
+  echo "fbootd: edit /etc/fbootd.toml (set advertise_ip), then: systemctl start fbootd"
+fi
+
+exit 0
