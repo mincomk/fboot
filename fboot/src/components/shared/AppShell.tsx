@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { HardDriveDownload, LayoutDashboard, Radar } from 'lucide-react'
+import { HardDriveDownload, LayoutDashboard, Radar, Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ThemeToggle } from './ThemeToggle'
 import { useAppSelector } from '@/store/hooks'
@@ -10,6 +10,7 @@ const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/bootables', label: 'Bootables', icon: HardDriveDownload, end: false },
   { to: '/scan', label: 'Scan', icon: Radar, end: false },
+  { to: '/settings', label: 'Settings', icon: Settings, end: false },
 ]
 
 const WS_LABEL = {

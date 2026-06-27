@@ -8,7 +8,7 @@ use crate::domain::{IpmiCreds, Mac, Server};
 use crate::error::{AppError, Result};
 use crate::events::EventBus;
 use crate::ports::{
-    ArpTable, BlobStore, BootConfigRepo, BootDefaultsRepo, BootableRepo, IpmiController,
+    ArpTable, BlobStore, BootConfigRepo, BootDefaultsRepo, BootableRepo, CacheRepo, IpmiController,
     NetworkScanner, ServerRepo, StatsRepo,
 };
 
@@ -23,6 +23,7 @@ pub struct AppState {
     pub ipmi: Arc<dyn IpmiController>,
     pub blob: Arc<dyn BlobStore>,
     pub arp: Arc<dyn ArpTable>,
+    pub cache: Arc<dyn CacheRepo>,
     pub scanner: Arc<dyn NetworkScanner>,
     pub events: EventBus,
     pub console: Arc<ConsoleHub>,

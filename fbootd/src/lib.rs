@@ -16,7 +16,7 @@ pub mod tasks;
 
 use std::sync::Arc;
 
-use adapters::arp::ProcArpTable;
+use adapters::arp::CachedArpTable;
 use adapters::blob::FsBlobStore;
 use adapters::db;
 use adapters::ipmi::{IpmitoolController, MockController};
@@ -34,6 +34,7 @@ pub async fn build_state(config: Config) -> Result<AppState> {
     let boot_config = Arc::new(db::SqliteBootConfigRepo::new(pool.clone()));
     let boot_defaults = Arc::new(db::SqliteBootDefaultsRepo::new(pool.clone()));
     let stats = Arc::new(db::SqliteStatsRepo::new(pool.clone()));
+    let cache: Arc<dyn ports::CacheRepo> = Arc::new(db::SqliteCacheRepo::new(pool.clone()));
     let blob = Arc::new(FsBlobStore::new(&config.blob_dir).await?);
 
     let ipmi: Arc<dyn ports::IpmiController> = if config.ipmi_use_mock {
@@ -41,7 +42,7 @@ pub async fn build_state(config: Config) -> Result<AppState> {
     } else {
         Arc::new(IpmitoolController::new())
     };
-    let arp: Arc<dyn ports::ArpTable> = Arc::new(ProcArpTable::new());
+    let arp: Arc<dyn ports::ArpTable> = Arc::new(CachedArpTable::new(cache.clone(), config.arp_ttl));
     let scanner: Arc<dyn ports::NetworkScanner> =
         Arc::new(DefaultScanner::new(arp.clone()));
 
@@ -55,6 +56,7 @@ pub async fn build_state(config: Config) -> Result<AppState> {
         ipmi,
         blob,
         arp,
+        cache,
         scanner,
         events: EventBus::new(),
         console: Arc::new(console::ConsoleHub::new()),

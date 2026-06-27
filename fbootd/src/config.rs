@@ -60,6 +60,7 @@ struct IntervalsSection {
     status: Option<u64>,
     stats: Option<u64>,
     arp: Option<u64>,
+    arp_ttl: Option<u64>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -92,6 +93,7 @@ pub struct Config {
     pub status_interval: Duration,
     pub stats_interval: Duration,
     pub arp_interval: Duration,
+    pub arp_ttl: Duration,
 
     pub mcp_stdio: bool,
 }
@@ -190,6 +192,11 @@ impl Config {
                 "FBOOTD_ARP_INTERVAL",
                 file.intervals.arp.map(|v| v.to_string()).as_deref(),
                 15u64,
+            )),
+            arp_ttl: Duration::from_secs(pick_parse(
+                "FBOOTD_ARP_TTL",
+                file.intervals.arp_ttl.map(|v| v.to_string()).as_deref(),
+                300u64,
             )),
 
             mcp_stdio: pick_parse(

@@ -13,8 +13,11 @@ pub mod ipmi {
 }
 
 pub mod arp {
+    pub mod cached;
     pub mod null;
+    pub mod parse;
     pub mod proc;
+    pub use cached::CachedArpTable;
     pub use null::NullArpTable;
     pub use proc::ProcArpTable;
 }

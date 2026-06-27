@@ -337,6 +337,7 @@ mod tests {
             ipmi: Arc::new(MockIpmi),
             blob: Arc::new(MockBlob),
             arp: Arc::new(MockArp),
+            cache: Arc::new(db::SqliteCacheRepo::new(pool.clone())),
             scanner: Arc::new(MockScanner),
             events: crate::events::EventBus::new(),
             console: Arc::new(crate::console::ConsoleHub::new()),

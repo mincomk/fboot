@@ -11,10 +11,13 @@ use crate::app_state::AppState;
 
 pub mod boot;
 pub mod bootables;
+pub mod cache;
 pub mod console;
 pub mod defaults;
+pub mod migration;
 pub mod scan;
 pub mod servers;
+pub mod servers_io;
 pub mod stats;
 pub mod ws;
 
@@ -26,11 +29,14 @@ pub fn router(state: AppState) -> Router {
     let router = Router::new()
         .route("/health", get(health))
         .merge(servers::router())
+        .merge(servers_io::router())
         .merge(bootables::router())
         .merge(boot::router())
         .merge(defaults::router())
         .merge(stats::router())
         .merge(scan::router())
+        .merge(cache::router())
+        .merge(migration::router())
         .merge(ws::router())
         .merge(console::router());
 

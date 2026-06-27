@@ -45,6 +45,10 @@
 # stats = 60
 # Env: FBOOTD_ARP_INTERVAL. Default 15.
 # arp = 15
+# How long a cached ARP entry stays valid, in seconds. ARP is persisted in the
+# SQLite DB so it survives restarts; entries older than this are treated as
+# expired and pruned on the next refresh. Env: FBOOTD_ARP_TTL. Default 300.
+# arp_ttl = 300
 
 [mcp]
 # If set, serve the MCP streamable-HTTP transport on this address.

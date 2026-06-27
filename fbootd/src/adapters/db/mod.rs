@@ -1,6 +1,7 @@
 pub mod boot_config;
 pub mod boot_defaults;
 pub mod bootables;
+pub mod cache;
 pub mod servers;
 pub mod stats;
 
@@ -14,6 +15,7 @@ use crate::error::Result;
 pub use boot_config::SqliteBootConfigRepo;
 pub use boot_defaults::SqliteBootDefaultsRepo;
 pub use bootables::SqliteBootableRepo;
+pub use cache::SqliteCacheRepo;
 pub use servers::SqliteServerRepo;
 pub use stats::SqliteStatsRepo;
 

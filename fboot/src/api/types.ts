@@ -148,3 +148,71 @@ export interface ServerStatus {
   ipmi_ip: string | null
   ipmi_reachable: boolean
 }
+
+// --- Settings: cache ---
+export interface CacheNamespace {
+  namespace: string
+  count: number
+  oldest?: string | null
+  newest?: string | null
+}
+
+export interface CacheEntry {
+  key: string
+  value: string
+  updated_at: string
+  expires_at?: string | null
+}
+
+// --- Settings: server import/export ---
+export interface ServerExportOptions {
+  status: boolean
+  config: boolean
+  mac: boolean
+  ip: boolean
+  pretty: boolean
+}
+
+export type ImportMode = 'override' | 'append'
+export type ConflictChoice = 'original' | 'new'
+
+// One exported/imported server record. Fields beyond the identity core are
+// present only when the matching export option was selected, so all are optional.
+export interface ServerRecord {
+  id?: Uuid
+  friendly_name: string
+  hostname?: string | null
+  metadata?: Record<string, string>
+  primary_mac?: string | null
+  ipmi_mac?: string | null
+  primary_ip?: string | null
+  ipmi_ip?: string | null
+  boot_pxe?: boolean
+  pxe_bootable_id?: Uuid | null
+  linux_bootable_id?: Uuid | null
+  cmdline_override?: string | null
+  cmdline_append?: string | null
+  power_status?: PowerStatus
+  power_w?: number | null
+  cpu_temp_c?: number | null
+}
+
+export interface ImportConflict {
+  key: string
+  incoming: ServerRecord
+  existing: ServerRecord
+}
+
+export interface ServerImportPayload {
+  mode: ImportMode
+  servers: ServerRecord[]
+  resolutions?: Record<string, ConflictChoice>
+}
+
+// import returns either a conflict list (append, unresolved) or an applied summary.
+export interface ImportResult {
+  conflicts?: ImportConflict[]
+  imported?: number
+  skipped?: number
+  overwritten?: number
+}

@@ -6,13 +6,19 @@ import type {
   BootConfig,
   BootDefaults,
   BootDev,
+  CacheEntry,
+  CacheNamespace,
   ConsoleStatus,
+  ImportResult,
   IpmiCreds,
   NewBootable,
   NewServer,
   PowerAction,
   PowerStatus,
   Server,
+  ServerExportOptions,
+  ServerImportPayload,
+  ServerRecord,
   StatsSample,
   UpdateBootConfig,
   UpdateServer,
@@ -148,12 +154,51 @@ export function createApiClient(baseUrl: string, getToken?: GetToken, options: A
     list: () => request<ArpEntry[]>('/arp'),
   }
 
+  const cache = {
+    view: () => request<CacheNamespace[]>('/cache'),
+    entries: (ns: string) => request<CacheEntry[]>(`/cache/${encodeURIComponent(ns)}`),
+    clear: (ns?: string) =>
+      request<{ cleared: number }>(ns ? `/cache/${encodeURIComponent(ns)}` : '/cache', {
+        method: 'DELETE',
+      }),
+  }
+
+  const migration = {
+    // tar.gz download — consumed via an anchor href, not fetch+JSON.
+    exportUrl: () => `${root}/migration/export`,
+    import: (file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return request<{ restarting: boolean }>('/migration/import', { method: 'POST', body: form })
+    },
+  }
+
+  const serversIo = {
+    export: (opts: ServerExportOptions) =>
+      request<ServerRecord[]>('/servers/export', { method: 'POST', body: json(opts) }),
+    import: (payload: ServerImportPayload) =>
+      request<ImportResult>('/servers/import', { method: 'POST', body: json(payload) }),
+  }
+
   const console = {
     status: (id: string) => request<ConsoleStatus>(`/servers/${id}/console`),
     kill: (id: string) => request<ConsoleStatus>(`/servers/${id}/console`, { method: 'DELETE' }),
   }
 
-  return { servers, boot, bootDefaults, bootables, stats, arp, console, baseUrl: root, request }
+  return {
+    servers,
+    boot,
+    bootDefaults,
+    bootables,
+    stats,
+    arp,
+    cache,
+    migration,
+    serversIo,
+    console,
+    baseUrl: root,
+    request,
+  }
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>
