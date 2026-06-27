@@ -2,6 +2,8 @@ name: release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -47,6 +49,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: fbootd
+          shared-key: musl-${{ matrix.target }}
 
       - name: Build (frontend + embedded binary)
         run: ./build.sh
