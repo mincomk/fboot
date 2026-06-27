@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { Toaster } from '@/components/ui/sonner'
 import { AppShell } from '@/components/shared/AppShell'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { ServerDetailPage } from '@/pages/ServerDetailPage'
@@ -22,6 +23,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AppShell>
+        <Toaster />
       </TooltipProvider>
     </BrowserRouter>
   )

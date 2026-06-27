@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Info, HardDrive, KeyRound, TerminalSquare, Power } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { RefreshButton } from '@/components/shared/RefreshButton'
 import { DetailLayout, type DetailSection } from '@/features/server-detail/DetailLayout'
@@ -18,16 +19,12 @@ import { fetchStats } from '@/store/slices/stats'
 const SECTIONS: DetailSection[] = [
   { key: 'info', label: 'Server Info', icon: <Info className="size-4" /> },
   { key: 'boot', label: 'Boot Management', icon: <HardDrive className="size-4" /> },
-  { key: 'ipmi', label: 'IPMI', icon: <KeyRound className="size-4" /> },
-  { key: 'terminal', label: 'Terminal', icon: <TerminalSquare className="size-4" /> },
-  { key: 'power', label: 'On / Off', icon: <Power className="size-4" /> },
+  { key: 'ipmi', label: 'IPMI', icon: <KeyRound className="size-4" />, requiresIpmi: true },
+  { key: 'terminal', label: 'Terminal', icon: <TerminalSquare className="size-4" />, requiresIpmi: true },
+  { key: 'power', label: 'On / Off', icon: <Power className="size-4" />, requiresIpmi: true },
 ]
 
 const SECTION_KEYS = SECTIONS.map((s) => s.key)
-
-// IPMI-related items (IPMI, Terminal, On/Off) and the power button are hidden from
-// the sidebar nav. Their views stay reachable by direct URL via the full SECTIONS list.
-const VISIBLE_SECTIONS = SECTIONS.filter((s) => s.key === 'info' || s.key === 'boot')
 
 export function ServerDetailPage() {
   const { id, section } = useParams<{ id: string; section: string }>()
@@ -46,6 +43,8 @@ export function ServerDetailPage() {
     dispatch(fetchStats())
     if (id) dispatch(fetchBootConfig(id))
   }
+
+  const ipmiReachable = view?.status?.ipmi_reachable ?? false
 
   if (!id) return null
 
@@ -78,7 +77,13 @@ export function ServerDetailPage() {
         subtitle={view.server.primary_mac ?? undefined}
         recent={recent}
         activeId={id}
-        sections={VISIBLE_SECTIONS}
+        sections={SECTIONS}
+        ipmiReachable={ipmiReachable}
+        onIpmiBlocked={(section) =>
+          toast.error(`${section.label} unavailable`, {
+            description: 'IPMI is offline for this server.',
+          })
+        }
       >
         {active === 'info' && <InfoSection view={view} />}
         {active === 'boot' && <BootManagementSection view={view} />}
