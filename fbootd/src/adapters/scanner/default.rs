@@ -8,6 +8,7 @@ use futures::stream::{self, BoxStream};
 use futures::{SinkExt, StreamExt};
 use hickory_resolver::proto::rr::RData;
 use hickory_resolver::TokioResolver;
+use mac_oui::Oui;
 use tokio::net::TcpStream;
 
 use crate::domain::{ScanEvent, ScanOptions, ScanProgress, ScanResult};
@@ -23,11 +24,19 @@ const SSH_PORT: u16 = 22;
 
 pub struct DefaultScanner {
     arp: Arc<dyn ArpTable>,
+    oui: Option<Arc<Oui>>,
 }
 
 impl DefaultScanner {
     pub fn new(arp: Arc<dyn ArpTable>) -> Self {
-        DefaultScanner { arp }
+        let oui = match Oui::default() {
+            Ok(db) => Some(Arc::new(db)),
+            Err(e) => {
+                tracing::warn!("failed to load OUI database: {e}");
+                None
+            }
+        };
+        DefaultScanner { arp, oui }
     }
 }
 
@@ -37,6 +46,7 @@ impl NetworkScanner for DefaultScanner {
         let hosts = enumerate_hosts(&opts.cidr)?;
         let ports = build_port_list(&opts);
         let arp = self.arp.clone();
+        let oui = self.oui.clone();
 
         let (mut tx, rx) = futures::channel::mpsc::channel::<ScanEvent>(64);
 
@@ -59,11 +69,18 @@ impl NetworkScanner for DefaultScanner {
                 if !probe.open_ports.is_empty() {
                     let mac = arp.mac_for_ip(probe.ip).await.ok().flatten();
                     let hostname = resolve_hostname(resolver.as_deref(), probe.ip).await;
+                    let vendor = mac.as_ref().and_then(|m| {
+                        oui.as_ref()?
+                            .lookup_by_mac(&m.to_string())
+                            .ok()
+                            .flatten()
+                            .map(|e| e.company_name.clone())
+                    });
                     let result = ScanResult {
                         ip: probe.ip,
                         mac,
                         hostname,
-                        board_info: None,
+                        vendor,
                         ipmi: opts.probe_ipmi && probe.open_ports.contains(&IPMI_PORT),
                         ssh: opts.probe_ssh && probe.open_ports.contains(&SSH_PORT),
                         open_ports: probe.open_ports,

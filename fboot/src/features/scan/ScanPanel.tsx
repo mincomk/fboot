@@ -139,7 +139,7 @@ export function ScanPanel() {
                     <th className="px-3 py-2 font-medium">IP</th>
                     <th className="px-3 py-2 font-medium">MAC</th>
                     <th className="px-3 py-2 font-medium">Hostname</th>
-                    <th className="px-3 py-2 font-medium">Board</th>
+                    <th className="px-3 py-2 font-medium">Vendor</th>
                     <th className="px-3 py-2 font-medium">Services</th>
                     <th className="px-3 py-2 font-medium">Open ports</th>
                   </tr>
@@ -150,7 +150,7 @@ export function ScanPanel() {
                       <td className="px-3 py-2 font-mono">{r.ip}</td>
                       <td className="px-3 py-2 font-mono text-muted-foreground">{r.mac ?? '—'}</td>
                       <td className="px-3 py-2">{r.hostname ?? '—'}</td>
-                      <td className="px-3 py-2 text-muted-foreground">{r.board_info ?? '—'}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{r.vendor ?? '—'}</td>
                       <td className="px-3 py-2">
                         <div className="flex gap-1">
                           {r.ipmi && <Badge variant="success">IPMI</Badge>}

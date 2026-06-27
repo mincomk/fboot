@@ -20,7 +20,7 @@ pub struct ScanResult {
     pub ip: IpAddr,
     pub mac: Option<Mac>,
     pub hostname: Option<String>,
-    pub board_info: Option<String>,
+    pub vendor: Option<String>,
     pub open_ports: Vec<u16>,
     pub ipmi: bool,
     pub ssh: bool,

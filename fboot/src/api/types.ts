@@ -121,7 +121,7 @@ export interface ScanResult {
   ip: string
   mac: string | null
   hostname: string | null
-  board_info: string | null
+  vendor: string | null
   open_ports: number[]
   ipmi: boolean
   ssh: boolean
