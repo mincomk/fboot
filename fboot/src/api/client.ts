@@ -26,6 +26,8 @@ import type {
 
 export type GetToken = () => string | null | undefined | Promise<string | null | undefined>
 
+export type ProgressFn = (loaded: number, total: number | null) => void
+
 export interface ApiClientOptions {
   getToken?: GetToken
   fetchImpl?: typeof fetch
@@ -78,11 +80,17 @@ function createRequester(baseUrl: string, opts: ApiClientOptions) {
     return (text ? JSON.parse(text) : undefined) as T
   }
 
-  return { request, root }
+  return { request, root, doFetch, authHeaders }
+}
+
+function parseFilename(disposition: string | null): string | null {
+  if (!disposition) return null
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)
+  return match ? decodeURIComponent(match[1]) : null
 }
 
 export function createApiClient(baseUrl: string, getToken?: GetToken, options: ApiClientOptions = {}) {
-  const { request, root } = createRequester(baseUrl, { getToken, ...options })
+  const { request, root, doFetch, authHeaders } = createRequester(baseUrl, { getToken, ...options })
 
   const json = (body: unknown) => JSON.stringify(body)
 
@@ -164,13 +172,74 @@ export function createApiClient(baseUrl: string, getToken?: GetToken, options: A
   }
 
   const migration = {
-    // tar.gz download — consumed via an anchor href, not fetch+JSON.
-    exportUrl: () => `${root}/migration/export`,
-    import: (file: File) => {
-      const form = new FormData()
-      form.append('file', file)
-      return request<{ restarting: boolean }>('/migration/import', { method: 'POST', body: form })
+    // Streamed tar.gz download with progress; returns the blob + suggested filename.
+    download: async (onProgress?: ProgressFn): Promise<{ blob: Blob; filename: string }> => {
+      const res = await doFetch(`${root}/migration/export`, { headers: await authHeaders() })
+      if (!res.ok) {
+        let message = res.statusText
+        try {
+          const body = await res.json()
+          if (body && typeof body.error === 'string') message = body.error
+        } catch {
+          /* non-json error body */
+        }
+        throw createApiError(res.status, message)
+      }
+      const total = Number(res.headers.get('Content-Length')) || null
+      const filename = parseFilename(res.headers.get('Content-Disposition')) ?? 'fboot-backup.tar.gz'
+
+      const reader = res.body?.getReader()
+      if (!reader) {
+        const blob = await res.blob()
+        onProgress?.(blob.size, blob.size)
+        return { blob, filename }
+      }
+
+      const chunks: Uint8Array[] = []
+      let loaded = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(value)
+        loaded += value.length
+        onProgress?.(loaded, total)
+      }
+      return { blob: new Blob(chunks as BlobPart[], { type: 'application/gzip' }), filename }
     },
+    // XHR-based upload so we can report progress (fetch can't observe upload bytes).
+    import: (file: File, onProgress?: ProgressFn): Promise<{ restarting: boolean }> =>
+      new Promise((resolve, reject) => {
+        const form = new FormData()
+        form.append('file', file)
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', `${root}/migration/import`)
+        xhr.responseType = 'text'
+        xhr.upload.onprogress = (e) =>
+          onProgress?.(e.loaded, e.lengthComputable ? e.total : null)
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(xhr.responseText ? JSON.parse(xhr.responseText) : { restarting: false })
+            } catch {
+              reject(createApiError(xhr.status, 'Invalid server response'))
+            }
+            return
+          }
+          let message = xhr.statusText
+          try {
+            const body = JSON.parse(xhr.responseText)
+            if (body && typeof body.error === 'string') message = body.error
+          } catch {
+            /* non-json error body */
+          }
+          reject(createApiError(xhr.status, message))
+        }
+        xhr.onerror = () => reject(createApiError(0, 'Network error'))
+        void authHeaders().then((headers) => {
+          for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v)
+          xhr.send(form)
+        })
+      }),
   }
 
   const serversIo = {
