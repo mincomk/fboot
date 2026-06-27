@@ -121,4 +121,12 @@
     color: var(--color-foreground);
     font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
   }
+  /* iOS Safari zooms in when a focused field's font-size is below 16px. */
+  @media (max-width: 640px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
 }
