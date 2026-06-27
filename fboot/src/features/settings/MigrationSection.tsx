@@ -44,22 +44,26 @@ export function MigrationSection() {
 
   const [downloading, setDownloading] = useState(false)
   const [downloadPct, setDownloadPct] = useState<number | null>(null)
+  const [downloadLoaded, setDownloadLoaded] = useState(0)
   const [downloadError, setDownloadError] = useState<string | null>(null)
 
   const handleDownload = async () => {
     setDownloading(true)
     setDownloadPct(null)
+    setDownloadLoaded(0)
     setDownloadError(null)
     try {
-      const { blob, filename } = await api.migration.download((loaded, total) =>
-        setDownloadPct(total ? Math.round((loaded / total) * 100) : null),
-      )
+      const { blob, filename } = await api.migration.download((loaded, total) => {
+        setDownloadLoaded(loaded)
+        setDownloadPct(total ? Math.round((loaded / total) * 100) : null)
+      })
       triggerBlobDownload(blob, filename)
     } catch (e) {
       setDownloadError(e instanceof Error ? e.message : 'Failed to download backup')
     } finally {
       setDownloading(false)
       setDownloadPct(null)
+      setDownloadLoaded(0)
     }
   }
 
@@ -125,7 +129,10 @@ export function MigrationSection() {
           {downloading &&
             (downloadPct === null ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" /> Preparing backup…
+                <Loader2 className="size-4 animate-spin" />
+                {downloadLoaded > 0
+                  ? `Downloaded ${formatBytes(downloadLoaded)}…`
+                  : 'Preparing backup…'}
               </div>
             ) : (
               <div className="flex flex-col gap-1.5">

@@ -32,7 +32,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-4">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 md:gap-6">
           <Link
             to="/"
             className="flex items-center gap-2 font-semibold transition-opacity hover:opacity-80"
@@ -54,7 +54,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 }
               >
                 <Icon className="size-4" />
-                {label}
+                <span className="hidden sm:inline">{label}</span>
               </NavLink>
             ))}
           </nav>

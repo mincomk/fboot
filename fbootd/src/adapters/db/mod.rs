@@ -7,7 +7,7 @@ pub mod stats;
 
 use std::str::FromStr;
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::SqlitePool;
 
 use crate::error::Result;
@@ -20,10 +20,13 @@ pub use servers::SqliteServerRepo;
 pub use stats::SqliteStatsRepo;
 
 pub async fn connect(db_path: &str) -> Result<SqlitePool> {
+    // WAL lets readers and the writer run concurrently, so a long `VACUUM INTO` (migration
+    // export) no longer starves the background read/write tasks into `database is locked`.
     let options = SqliteConnectOptions::from_str(db_path)
         .map_err(|e| crate::error::AppError::Internal(e.to_string()))?
         .create_if_missing(true)
         .foreign_keys(true)
+        .journal_mode(SqliteJournalMode::Wal)
         .busy_timeout(std::time::Duration::from_secs(5));
 
     let pool = SqlitePoolOptions::new()

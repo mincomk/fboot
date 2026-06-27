@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
@@ -9,11 +10,14 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use bytes::Bytes;
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use gzp::deflate::Gzip;
+use gzp::par::compress::ParCompressBuilder;
+use gzp::ZWriter;
 use serde_json::{json, Value};
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{Connection, SqliteConnection};
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::app_state::AppState;
 use crate::error::{AppError, Result};
@@ -47,8 +51,11 @@ fn unique_tmp(prefix: &str) -> PathBuf {
 
 /// Produce a consistent on-disk snapshot of the DB via `VACUUM INTO` to a fresh temp file.
 async fn vacuum_snapshot(db_path: &str) -> Result<PathBuf> {
-    let options =
-        SqliteConnectOptions::from_str(db_path).map_err(|e| AppError::Internal(e.to_string()))?;
+    // A generous busy_timeout absorbs any remaining contention with the pool's writers
+    // rather than failing fast with `database is locked`.
+    let options = SqliteConnectOptions::from_str(db_path)
+        .map_err(|e| AppError::Internal(e.to_string()))?
+        .busy_timeout(std::time::Duration::from_secs(30));
     let mut conn = SqliteConnection::connect_with(&options).await?;
 
     let snap = unique_tmp("fbootd-snap");
@@ -61,50 +68,98 @@ async fn vacuum_snapshot(db_path: &str) -> Result<PathBuf> {
     Ok(snap)
 }
 
-/// Build an in-memory gzip+tar archive containing `fbootd.db` (a VACUUMed snapshot) and the
-/// blob directory under `blobs/`. Used by both export and the import safety dump.
-async fn build_archive(db_path: &str, blob_dir: &str) -> Result<Vec<u8>> {
-    let snap = vacuum_snapshot(db_path).await?;
-    let snap_for_blocking = snap.clone();
-    let blob_dir = blob_dir.to_string();
+/// A `Write` sink that forwards each compressed chunk into a bounded async channel, letting the
+/// archive be streamed to the HTTP client as it is produced. `blocking_send` applies backpressure
+/// so memory stays bounded; it is called from gzp's own writer thread (not an async context).
+struct ChannelWriter {
+    tx: tokio::sync::mpsc::Sender<std::io::Result<Bytes>>,
+}
 
-    let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-        let enc = GzEncoder::new(Vec::new(), Compression::default());
-        let mut builder = tar::Builder::new(enc);
+impl Write for ChannelWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.tx
+            .blocking_send(Ok(Bytes::copy_from_slice(buf)))
+            .map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::BrokenPipe, "download receiver dropped")
+            })?;
+        Ok(buf.len())
+    }
 
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Write a gzip+tar archive containing `fbootd.db` (a VACUUMed snapshot) and the blob directory
+/// under `blobs/` into `sink`. Compression is parallel (gzp) at the fast level — blobs are mostly
+/// incompressible boot images, so a higher level only burns CPU for negligible size gains.
+/// Synchronous and CPU-bound: call inside `spawn_blocking`. Used by export and the safety dump.
+fn write_archive<W: Write + Send + 'static>(snap: &Path, blob_dir: &str, sink: W) -> Result<()> {
+    let enc = ParCompressBuilder::<Gzip>::new()
+        .compression_level(Compression::fast())
+        .from_writer(sink);
+    let mut builder = tar::Builder::new(enc);
+
+    builder
+        .append_path_with_name(snap, "fbootd.db")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let blob_path = Path::new(blob_dir);
+    if blob_path.is_dir() {
         builder
-            .append_path_with_name(&snap_for_blocking, "fbootd.db")
+            .append_dir_all("blobs", blob_path)
             .map_err(|e| AppError::Internal(e.to_string()))?;
-
-        let blob_path = Path::new(&blob_dir);
-        if blob_path.is_dir() {
-            builder
-                .append_dir_all("blobs", blob_path)
-                .map_err(|e| AppError::Internal(e.to_string()))?;
-        } else {
-            // No blob dir yet: still record an empty `blobs/` entry.
-            builder
-                .append_dir("blobs", ".")
-                .map_err(|e| AppError::Internal(e.to_string()))?;
-        }
-
-        let enc = builder
-            .into_inner()
+    } else {
+        // No blob dir yet: still record an empty `blobs/` entry.
+        builder
+            .append_dir("blobs", ".")
             .map_err(|e| AppError::Internal(e.to_string()))?;
-        let bytes = enc.finish().map_err(|e| AppError::Internal(e.to_string()))?;
-        Ok(bytes)
+    }
+
+    let mut enc = builder
+        .into_inner()
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    enc.finish().map_err(|e| AppError::Internal(e.to_string()))?;
+    Ok(())
+}
+
+/// Build an archive of current state to `dest` on disk (used as the pre-import safety dump).
+async fn write_safety_dump(db_path: &str, blob_dir: &str, dest: PathBuf) -> Result<u64> {
+    let snap = vacuum_snapshot(db_path).await?;
+    let blob_dir = blob_dir.to_string();
+    let snap_for_blocking = snap.clone();
+    let dest_for_blocking = dest.clone();
+
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        let file = std::fs::File::create(&dest_for_blocking)?;
+        let res = write_archive(&snap_for_blocking, &blob_dir, std::io::BufWriter::new(file));
+        let _ = std::fs::remove_file(&snap_for_blocking);
+        res
     })
     .await
     .map_err(|e| AppError::Internal(e.to_string()))??;
 
-    let _ = std::fs::remove_file(&snap);
-    Ok(bytes)
+    Ok(std::fs::metadata(&dest)?.len())
 }
 
 async fn export(State(state): State<AppState>) -> Result<Response> {
     tracing::info!("migration export requested");
-    let bytes = build_archive(&state.config.db_path, &state.config.blob_dir).await?;
-    tracing::info!(bytes = bytes.len(), "migration export built");
+    // Snapshot the DB up front (may fail -> proper HTTP error); the archive itself is then
+    // streamed, so the body has no Content-Length and a mid-stream failure truncates the download.
+    let snap = vacuum_snapshot(&state.config.db_path).await?;
+    let blob_dir = state.config.blob_dir.clone();
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<std::io::Result<Bytes>>(64);
+    let err_tx = tx.clone();
+    let snap_for_blocking = snap.clone();
+    tokio::task::spawn_blocking(move || {
+        let res = write_archive(&snap_for_blocking, &blob_dir, ChannelWriter { tx });
+        let _ = std::fs::remove_file(&snap_for_blocking);
+        if let Err(e) = res {
+            tracing::error!(error = %e, "migration export archive failed");
+            let _ = err_tx.blocking_send(Err(std::io::Error::other(e.to_string())));
+        }
+    });
 
     let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
     let filename = format!("fboot-backup-{ts}.tar.gz");
@@ -116,7 +171,7 @@ async fn export(State(state): State<AppState>) -> Result<Response> {
             header::CONTENT_DISPOSITION,
             format!("attachment; filename=\"{filename}\""),
         )
-        .body(Body::from(bytes))
+        .body(Body::from_stream(ReceiverStream::new(rx)))
         .map_err(|e| AppError::Internal(e.to_string()))?;
     Ok(resp)
 }
@@ -182,10 +237,11 @@ async fn import(State(state): State<AppState>, mut multipart: Multipart) -> Resu
         .unwrap_or_else(|| PathBuf::from("."));
 
     // Safety dump of the current state before we overwrite anything.
-    let safety = build_archive(&state.config.db_path, &state.config.blob_dir).await?;
     let safety_path = db_dir.join("migration.bak.tar.gz");
-    std::fs::write(&safety_path, &safety)?;
-    tracing::info!(path = %safety_path.display(), bytes = safety.len(), "safety dump written");
+    let safety_bytes =
+        write_safety_dump(&state.config.db_path, &state.config.blob_dir, safety_path.clone())
+            .await?;
+    tracing::info!(path = %safety_path.display(), bytes = safety_bytes, "safety dump written");
 
     // Extract + swap on disk off the async runtime.
     let blob_dir = state.config.blob_dir.clone();
