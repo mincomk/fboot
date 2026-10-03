@@ -153,14 +153,15 @@ pub struct MetadataDeleteReq {
 #[schemars(crate = "rmcp::schemars")]
 pub struct SetIpmiReq {
     pub server_id: String,
+    /// Null / omitted / empty means "keep using the configured default".
     #[serde(default)]
-    pub host: String,
+    pub host: Option<String>,
     #[serde(default)]
-    pub username: String,
+    pub username: Option<String>,
     #[serde(default)]
-    pub password: String,
+    pub password: Option<String>,
     #[serde(default)]
-    pub cipher: u8,
+    pub cipher: Option<u8>,
 }
 
 #[derive(Debug, Serialize)]
@@ -585,10 +586,10 @@ impl Fbootd {
         let id = parse_uuid(&req.server_id)?;
         self.load_server(id).await?;
         let creds = IpmiCreds {
-            host: req.host,
-            username: req.username,
-            password: req.password,
-            cipher: req.cipher,
+            host: req.host.unwrap_or_default().trim().to_string(),
+            username: req.username.unwrap_or_default().trim().to_string(),
+            password: req.password.unwrap_or_default(),
+            cipher: req.cipher.unwrap_or_default(),
         };
         self.state.servers.set_ipmi_creds(id, creds.clone()).await?;
         json_out(IpmiCredsOut::from(creds))
