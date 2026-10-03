@@ -251,4 +251,12 @@ impl ServerRepo for SqliteServerRepo {
         .await?;
         Ok(())
     }
+
+    async fn delete_ipmi_creds(&self, id: Uuid) -> Result<()> {
+        sqlx::query("DELETE FROM server_ipmi WHERE server_id = ?")
+            .bind(id.to_string())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }

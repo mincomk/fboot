@@ -19,7 +19,9 @@ import { fetchStats } from '@/store/slices/stats'
 const SECTIONS: DetailSection[] = [
   { key: 'info', label: 'Server Info', icon: <Info className="size-4" /> },
   { key: 'boot', label: 'Boot Management', icon: <HardDrive className="size-4" /> },
-  { key: 'ipmi', label: 'IPMI', icon: <KeyRound className="size-4" />, requiresIpmi: true },
+  // Deliberately NOT gated on ipmiReachable: this is the page that fixes the
+  // credentials, so it has to stay reachable while IPMI is failing to answer.
+  { key: 'ipmi', label: 'IPMI', icon: <KeyRound className="size-4" /> },
   { key: 'terminal', label: 'Terminal', icon: <TerminalSquare className="size-4" />, requiresIpmi: true },
   { key: 'power', label: 'On / Off', icon: <Power className="size-4" />, requiresIpmi: true },
 ]

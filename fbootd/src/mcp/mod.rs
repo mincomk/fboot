@@ -153,31 +153,34 @@ pub struct MetadataDeleteReq {
 #[schemars(crate = "rmcp::schemars")]
 pub struct SetIpmiReq {
     pub server_id: String,
+    /// Null / omitted / empty means "keep using the configured default".
     #[serde(default)]
-    pub host: String,
+    pub host: Option<String>,
     #[serde(default)]
-    pub username: String,
+    pub username: Option<String>,
     #[serde(default)]
-    pub password: String,
+    pub password: Option<String>,
     #[serde(default)]
-    pub cipher: u8,
+    pub cipher: Option<u8>,
 }
 
+/// A `null` field means "no override stored for this field, the server-wide
+/// default is used" -- the same encoding the HTTP DTO uses.
 #[derive(Debug, Serialize)]
 pub struct IpmiCredsOut {
-    pub host: String,
-    pub username: String,
-    pub password: String,
-    pub cipher: u8,
+    pub host: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub cipher: Option<u8>,
 }
 
 impl From<IpmiCreds> for IpmiCredsOut {
     fn from(c: IpmiCreds) -> Self {
         IpmiCredsOut {
-            host: c.host,
-            username: c.username,
-            password: c.password,
-            cipher: c.cipher,
+            host: (!c.host.is_empty()).then_some(c.host),
+            username: (!c.username.is_empty()).then_some(c.username),
+            password: (!c.password.is_empty()).then_some(c.password),
+            cipher: (c.cipher != 0).then_some(c.cipher),
         }
     }
 }
@@ -561,7 +564,9 @@ impl Fbootd {
         json_out(server)
     }
 
-    #[tool(description = "Get the per-server IPMI credential overrides")]
+    #[tool(
+        description = "Get the per-server IPMI credential overrides. A null field means no override is stored and the server-wide default is used."
+    )]
     async fn get_ipmi(
         &self,
         Parameters(req): Parameters<ServerIdReq>,
@@ -573,11 +578,13 @@ impl Fbootd {
             .servers
             .get_ipmi_creds(id)
             .await?
-            .ok_or_else(|| ErrorData::resource_not_found("no ipmi override set", None))?;
+            .unwrap_or_default();
         json_out(IpmiCredsOut::from(creds))
     }
 
-    #[tool(description = "Set per-server IPMI credential overrides (host, username, password, cipher)")]
+    #[tool(
+        description = "Set the per-server IPMI credentials for one device (host, username, password, cipher). This replaces the whole override: a field that is null or omitted falls back to the server-wide default. Use clear_ipmi to drop the override entirely."
+    )]
     async fn set_ipmi(
         &self,
         Parameters(req): Parameters<SetIpmiReq>,
@@ -585,13 +592,26 @@ impl Fbootd {
         let id = parse_uuid(&req.server_id)?;
         self.load_server(id).await?;
         let creds = IpmiCreds {
-            host: req.host,
-            username: req.username,
-            password: req.password,
-            cipher: req.cipher,
+            host: req.host.unwrap_or_default().trim().to_string(),
+            username: req.username.unwrap_or_default().trim().to_string(),
+            password: req.password.unwrap_or_default(),
+            cipher: req.cipher.unwrap_or_default(),
         };
         self.state.servers.set_ipmi_creds(id, creds.clone()).await?;
         json_out(IpmiCredsOut::from(creds))
+    }
+
+    #[tool(
+        description = "Clear a server's IPMI credential overrides so it falls back to the server-wide defaults"
+    )]
+    async fn clear_ipmi(
+        &self,
+        Parameters(req): Parameters<ServerIdReq>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let id = parse_uuid(&req.server_id)?;
+        self.load_server(id).await?;
+        self.state.servers.delete_ipmi_creds(id).await?;
+        json_out(json!({ "cleared": id }))
     }
 
     #[tool(description = "Render the linux iPXE script the daemon would serve this server at boot")]
@@ -835,6 +855,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ipmi_creds_out_reports_unset_fields_as_null() {
+        assert_eq!(
+            serde_json::to_value(IpmiCredsOut::from(IpmiCreds::default())).unwrap(),
+            json!({ "host": null, "username": null, "password": null, "cipher": null })
+        );
+        assert_eq!(
+            serde_json::to_value(IpmiCredsOut::from(IpmiCreds {
+                host: "10.0.0.1".into(),
+                username: "root".into(),
+                password: "pw".into(),
+                cipher: 17,
+            }))
+            .unwrap(),
+            json!({ "host": "10.0.0.1", "username": "root", "password": "pw", "cipher": 17 })
+        );
+    }
+
+    #[test]
     fn tool_router_exposes_all_tools() {
         let router = Fbootd::tool_router();
         let names: Vec<String> = router.list_all().into_iter().map(|t| t.name.into()).collect();
@@ -857,6 +895,7 @@ mod tests {
             "delete_server_metadata",
             "get_ipmi",
             "set_ipmi",
+            "clear_ipmi",
             "get_ipxe",
             "get_boot_defaults",
             "set_boot_defaults",

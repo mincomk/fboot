@@ -64,13 +64,12 @@ export const deleteServerMeta = createAsyncThunk(
   },
 )
 
+// Rejects on failure on purpose: the daemon answers 200 with nulls when a
+// server has no override, so a rejection means the stored override could not be
+// read at all -- and the page must not present a blank form as if it were empty.
 export const fetchIpmi = createAsyncThunk('servers/fetchIpmi', async (id: string) => {
-  try {
-    const creds = await api.servers.getIpmi(id)
-    return { id, creds }
-  } catch {
-    return { id, creds: {} as IpmiCreds }
-  }
+  const creds = await api.servers.getIpmi(id)
+  return { id, creds }
 })
 
 export const saveIpmi = createAsyncThunk(
@@ -80,6 +79,11 @@ export const saveIpmi = createAsyncThunk(
     return { id: args.id, creds }
   },
 )
+
+export const clearIpmi = createAsyncThunk('servers/clearIpmi', async (id: string) => {
+  await api.servers.clearIpmi(id)
+  return id
+})
 
 export const fetchBootConfig = createAsyncThunk('servers/fetchBoot', (id: string) =>
   api.boot.get(id),
@@ -172,6 +176,9 @@ const slice = createSlice({
       })
       .addCase(saveIpmi.fulfilled, (state, action) => {
         state.ipmi[action.payload.id] = action.payload.creds
+      })
+      .addCase(clearIpmi.fulfilled, (state, action) => {
+        state.ipmi[action.payload] = {}
       })
       .addCase(fetchBootConfig.fulfilled, (state, action) => {
         state.bootConfigs[action.payload.server_id] = action.payload
