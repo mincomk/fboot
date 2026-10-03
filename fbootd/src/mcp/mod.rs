@@ -164,21 +164,23 @@ pub struct SetIpmiReq {
     pub cipher: Option<u8>,
 }
 
+/// A `null` field means "no override stored for this field, the server-wide
+/// default is used" -- the same encoding the HTTP DTO uses.
 #[derive(Debug, Serialize)]
 pub struct IpmiCredsOut {
-    pub host: String,
-    pub username: String,
-    pub password: String,
-    pub cipher: u8,
+    pub host: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub cipher: Option<u8>,
 }
 
 impl From<IpmiCreds> for IpmiCredsOut {
     fn from(c: IpmiCreds) -> Self {
         IpmiCredsOut {
-            host: c.host,
-            username: c.username,
-            password: c.password,
-            cipher: c.cipher,
+            host: (!c.host.is_empty()).then_some(c.host),
+            username: (!c.username.is_empty()).then_some(c.username),
+            password: (!c.password.is_empty()).then_some(c.password),
+            cipher: (c.cipher != 0).then_some(c.cipher),
         }
     }
 }
@@ -562,7 +564,9 @@ impl Fbootd {
         json_out(server)
     }
 
-    #[tool(description = "Get the per-server IPMI credential overrides")]
+    #[tool(
+        description = "Get the per-server IPMI credential overrides. A null field means no override is stored and the server-wide default is used."
+    )]
     async fn get_ipmi(
         &self,
         Parameters(req): Parameters<ServerIdReq>,
@@ -574,11 +578,13 @@ impl Fbootd {
             .servers
             .get_ipmi_creds(id)
             .await?
-            .ok_or_else(|| ErrorData::resource_not_found("no ipmi override set", None))?;
+            .unwrap_or_default();
         json_out(IpmiCredsOut::from(creds))
     }
 
-    #[tool(description = "Set per-server IPMI credential overrides (host, username, password, cipher)")]
+    #[tool(
+        description = "Set the per-server IPMI credentials for one device (host, username, password, cipher). This replaces the whole override: a field that is null or omitted falls back to the server-wide default. Use clear_ipmi to drop the override entirely."
+    )]
     async fn set_ipmi(
         &self,
         Parameters(req): Parameters<SetIpmiReq>,
@@ -847,6 +853,24 @@ pub async fn serve_stdio(state: AppState) -> crate::error::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ipmi_creds_out_reports_unset_fields_as_null() {
+        assert_eq!(
+            serde_json::to_value(IpmiCredsOut::from(IpmiCreds::default())).unwrap(),
+            json!({ "host": null, "username": null, "password": null, "cipher": null })
+        );
+        assert_eq!(
+            serde_json::to_value(IpmiCredsOut::from(IpmiCreds {
+                host: "10.0.0.1".into(),
+                username: "root".into(),
+                password: "pw".into(),
+                cipher: 17,
+            }))
+            .unwrap(),
+            json!({ "host": "10.0.0.1", "username": "root", "password": "pw", "cipher": 17 })
+        );
+    }
 
     #[test]
     fn tool_router_exposes_all_tools() {

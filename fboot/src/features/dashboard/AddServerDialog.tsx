@@ -168,6 +168,9 @@ export function AddServerDialog() {
                 <Input
                   id="ipmi-cipher"
                   type="number"
+                  min={1}
+                  max={255}
+                  step={1}
                   placeholder="default"
                   value={ipmiCipher}
                   onChange={(e) => setIpmiCipher(e.target.value)}

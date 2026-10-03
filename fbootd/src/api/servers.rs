@@ -786,6 +786,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ipmi_empty_string_fields_mean_unset() {
+        let state = test_state().await;
+        let app = crate::api::router(state.clone());
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/servers")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"primary_mac":"99:99:99:99:99:99","friendly_name":"empty-box"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let id = body_json(resp).await["id"].as_str().unwrap().to_string();
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/servers/{id}/ipmi"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"host":"10.1.1.1","username":"root","password":"pw","cipher":3}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // "" is the other spelling of "use the default", so it must clear the
+        // field rather than store an empty override that shadows the default.
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/servers/{id}/ipmi"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"host":"","username":"","password":"","cipher":null}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let stored = body_json(resp).await;
+        assert!(stored["host"].is_null(), "{stored}");
+        assert!(stored["username"].is_null(), "{stored}");
+        assert!(stored["password"].is_null(), "{stored}");
+
+        let id = Uuid::parse_str(&id).unwrap();
+        let row = state.servers.get_ipmi_creds(id).await.unwrap().unwrap();
+        assert_eq!(row.host, "");
+        assert_eq!(row.username, "");
+        assert_eq!(row.password, "");
+        assert_eq!(row.cipher, 0);
+    }
+
+    #[tokio::test]
     async fn effective_ipmi_creds_prefer_the_per_device_override() {
         use crate::domain::NewServer;
 

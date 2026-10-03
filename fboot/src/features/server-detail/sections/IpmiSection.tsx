@@ -12,6 +12,8 @@ function message(e: unknown): string | undefined {
   return e instanceof Error ? e.message : typeof e === 'string' ? e : undefined
 }
 
+type LoadState = 'loading' | 'ready' | 'error'
+
 export function IpmiSection({ view }: { view: View }) {
   const dispatch = useAppDispatch()
   const id = view.server.id
@@ -22,12 +24,30 @@ export function IpmiSection({ view }: { view: View }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [cipher, setCipher] = useState('')
-  const [saved, setSaved] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Saving is only allowed once the stored override has actually been read, so a
+  // failed fetch can never be followed by a Save that blanks the credentials.
+  const [load, setLoad] = useState<LoadState>('loading')
+  const [attempt, setAttempt] = useState(0)
+  // A probe that answers overrides a stale "not answering" status.
+  const [probeOk, setProbeOk] = useState(false)
 
   useEffect(() => {
+    let cancelled = false
+    setLoad('loading')
+    setProbeOk(false)
     dispatch(fetchIpmi(id))
-  }, [dispatch, id])
+      .unwrap()
+      .then(() => {
+        if (!cancelled) setLoad('ready')
+      })
+      .catch(() => {
+        if (!cancelled) setLoad('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [dispatch, id, attempt])
 
   useEffect(() => {
     if (!creds) return
@@ -37,8 +57,9 @@ export function IpmiSection({ view }: { view: View }) {
     setCipher(creds.cipher != null && creds.cipher !== 0 ? String(creds.cipher) : '')
   }, [creds])
 
+  const editable = load === 'ready' && !busy
+
   const save = async () => {
-    setSaved(false)
     setBusy(true)
     try {
       await dispatch(
@@ -52,7 +73,6 @@ export function IpmiSection({ view }: { view: View }) {
           },
         }),
       ).unwrap()
-      setSaved(true)
       toast.success('IPMI credentials saved')
     } catch (e) {
       toast.error('Could not save IPMI credentials', { description: message(e) })
@@ -69,7 +89,6 @@ export function IpmiSection({ view }: { view: View }) {
       setUsername('')
       setPassword('')
       setCipher('')
-      setSaved(false)
       toast.success('Reverted to the server-wide IPMI defaults')
     } catch (e) {
       toast.error('Could not clear the IPMI override', { description: message(e) })
@@ -82,6 +101,7 @@ export function IpmiSection({ view }: { view: View }) {
     setBusy(true)
     try {
       const res = await dispatch(powerAction({ id, action: 'status' })).unwrap()
+      setProbeOk(true)
       toast.success(`IPMI answered — power is ${res.power}`)
     } catch (e) {
       toast.error('IPMI did not answer with these credentials', { description: message(e) })
@@ -101,7 +121,15 @@ export function IpmiSection({ view }: { view: View }) {
           fall back to the server-wide defaults — the BMC host then also falls back to the address
           discovered for the IPMI MAC.
         </p>
-        {!reachable && (
+        {load === 'error' && (
+          <div className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm">
+            <span>Could not read the stored IPMI credentials for this server.</span>
+            <Button type="button" variant="outline" onClick={() => setAttempt((n) => n + 1)}>
+              Retry
+            </Button>
+          </div>
+        )}
+        {load !== 'error' && !reachable && !probeOk && (
           <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
             IPMI is not answering for this server. Set its BMC host, username and password here,
             then press <span className="font-medium">Test connection</span>.
@@ -111,7 +139,7 @@ export function IpmiSection({ view }: { view: View }) {
           className="flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault()
-            if (!busy) save()
+            if (editable) save()
           }}
         >
           <div className="grid gap-4 sm:grid-cols-2">
@@ -121,6 +149,7 @@ export function IpmiSection({ view }: { view: View }) {
                 id="ipmi-host"
                 placeholder="auto-discovered"
                 value={host}
+                disabled={!editable}
                 onChange={(e) => setHost(e.target.value)}
               />
             </div>
@@ -129,8 +158,12 @@ export function IpmiSection({ view }: { view: View }) {
               <Input
                 id="ipmi-cipher"
                 type="number"
+                min={1}
+                max={255}
+                step={1}
                 placeholder="default"
                 value={cipher}
+                disabled={!editable}
                 onChange={(e) => setCipher(e.target.value)}
               />
             </div>
@@ -140,6 +173,7 @@ export function IpmiSection({ view }: { view: View }) {
                 id="ipmi-user"
                 placeholder="default"
                 value={username}
+                disabled={!editable}
                 onChange={(e) => setUsername(e.target.value)}
               />
             </div>
@@ -150,21 +184,21 @@ export function IpmiSection({ view }: { view: View }) {
                 type="password"
                 placeholder="default"
                 value={password}
+                disabled={!editable}
                 onChange={(e) => setPassword(e.target.value)}
               />
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="submit" disabled={busy}>
+            <Button type="submit" disabled={!editable}>
               Save credentials
             </Button>
-            <Button type="button" variant="outline" disabled={busy} onClick={test}>
+            <Button type="button" variant="outline" disabled={!editable} onClick={test}>
               Test connection
             </Button>
-            <Button type="button" variant="ghost" disabled={busy} onClick={clear}>
+            <Button type="button" variant="ghost" disabled={!editable} onClick={clear}>
               Clear override
             </Button>
-            {saved && <span className="text-sm text-muted-foreground">Saved.</span>}
           </div>
         </form>
       </CardContent>
