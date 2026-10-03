@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct IpmiCreds {
     pub host: String,
     pub username: String,

@@ -21,7 +21,10 @@ pub fn router() -> Router<AppState> {
             "/api/servers/{id}/metadata/{key}",
             axum::routing::put(set_metadata).delete(delete_metadata),
         )
-        .route("/api/servers/{id}/ipmi", get(get_ipmi).put(set_ipmi))
+        .route(
+            "/api/servers/{id}/ipmi",
+            get(get_ipmi).put(set_ipmi).delete(delete_ipmi),
+        )
         .route("/api/servers/{id}/power", post(power))
         .route("/api/servers/{id}/bootdev", post(bootdev))
 }
@@ -124,25 +127,33 @@ async fn delete_metadata(
     Ok(Json(server))
 }
 
-#[derive(Serialize, Deserialize)]
+/// Wire format for the per-server IPMI credential overrides. Every field is
+/// optional: `null`, an empty string, or an omitted key all mean "keep using the
+/// configured default for this field". `null` in particular must not be a
+/// deserialization error -- an empty form field on the dashboard serializes to
+/// exactly that, so a `String` field here would reject `{"host": null}` with 422.
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
 struct IpmiCredsDto {
-    #[serde(default)]
-    host: String,
-    #[serde(default)]
-    username: String,
-    #[serde(default)]
-    password: String,
-    #[serde(default)]
-    cipher: u8,
+    host: Option<String>,
+    username: Option<String>,
+    password: Option<String>,
+    cipher: Option<u8>,
+}
+
+fn non_empty(value: String) -> Option<String> {
+    let value = value.trim().to_string();
+    (!value.is_empty()).then_some(value)
 }
 
 impl From<IpmiCreds> for IpmiCredsDto {
     fn from(c: IpmiCreds) -> Self {
         IpmiCredsDto {
-            host: c.host,
-            username: c.username,
-            password: c.password,
-            cipher: c.cipher,
+            host: non_empty(c.host),
+            username: non_empty(c.username),
+            password: (!c.password.is_empty()).then_some(c.password),
+            // 0 is the "unset" encoding IpmiCreds uses; report it as null.
+            cipher: (c.cipher != 0).then_some(c.cipher),
         }
     }
 }
@@ -150,20 +161,23 @@ impl From<IpmiCreds> for IpmiCredsDto {
 impl From<IpmiCredsDto> for IpmiCreds {
     fn from(c: IpmiCredsDto) -> Self {
         IpmiCreds {
-            host: c.host,
-            username: c.username,
-            password: c.password,
-            cipher: c.cipher,
+            host: c.host.unwrap_or_default().trim().to_string(),
+            username: c.username.unwrap_or_default().trim().to_string(),
+            password: c.password.unwrap_or_default(),
+            cipher: c.cipher.unwrap_or_default(),
         }
     }
 }
 
+/// Read the stored override. A server with no override answers 200 with every
+/// field null rather than 404, so the dashboard can render the (blank) form
+/// without having to treat "not configured yet" as an error.
 async fn get_ipmi(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<IpmiCredsDto>> {
     load(&state, id).await?;
-    let creds = state.servers.get_ipmi_creds(id).await?.ok_or(AppError::NotFound)?;
+    let creds = state.servers.get_ipmi_creds(id).await?.unwrap_or_default();
     Ok(Json(creds.into()))
 }
 
@@ -174,9 +188,25 @@ async fn set_ipmi(
 ) -> Result<Json<IpmiCredsDto>> {
     load(&state, id).await?;
     let creds: IpmiCreds = dto.into();
-    tracing::info!(%id, host = %creds.host, "ipmi credentials set");
+    tracing::info!(
+        %id,
+        host = %creds.host,
+        username = %creds.username,
+        "ipmi credentials set"
+    );
     state.servers.set_ipmi_creds(id, creds.clone()).await?;
     Ok(Json(creds.into()))
+}
+
+/// Forget the override so the server goes back to the server-wide defaults.
+async fn delete_ipmi(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Value>> {
+    load(&state, id).await?;
+    tracing::info!(%id, "ipmi credential override cleared");
+    state.servers.delete_ipmi_creds(id).await?;
+    Ok(Json(json!({ "ok": true })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -617,5 +647,212 @@ mod tests {
             state.effective_pxe_bootable(&registered).await.unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn ipmi_dto_accepts_null_and_missing_fields() {
+        // This is exactly what an empty dashboard form serializes to; it used to
+        // be a 422 because the fields were plain `String`/`u8`.
+        let dto: IpmiCredsDto =
+            serde_json::from_str(r#"{"host":null,"username":null,"password":null,"cipher":null}"#)
+                .unwrap();
+        let creds: IpmiCreds = dto.into();
+        assert_eq!(creds.host, "");
+        assert_eq!(creds.username, "");
+        assert_eq!(creds.password, "");
+        assert_eq!(creds.cipher, 0);
+
+        let dto: IpmiCredsDto = serde_json::from_str("{}").unwrap();
+        let creds: IpmiCreds = dto.into();
+        assert_eq!(creds.host, "");
+        assert_eq!(creds.cipher, 0);
+
+        // Round-tripping an unset value stays unset.
+        let dto = IpmiCredsDto::from(IpmiCreds::default());
+        assert_eq!(serde_json::to_value(&dto).unwrap()["cipher"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn ipmi_override_get_put_delete_round_trip() {
+        let state = test_state().await;
+        let app = crate::api::router(state);
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/servers")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"primary_mac":"77:77:77:77:77:77","friendly_name":"ipmi-box"}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let id = body_json(resp).await["id"].as_str().unwrap().to_string();
+
+        // No override yet: 200 with nulls, not 404.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/servers/{id}/ipmi"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert!(json["username"].is_null(), "unset override: {json}");
+
+        // A blank form saves cleanly.
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/servers/{id}/ipmi"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"host":null,"username":null,"password":null,"cipher":null}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/servers/{id}/ipmi"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        r#"{"host":" 10.0.0.9 ","username":"root","password":"s3cret","cipher":3}"#,
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let stored = body_json(resp).await;
+        assert_eq!(stored["host"], "10.0.0.9", "host should be trimmed");
+        assert_eq!(stored["username"], "root");
+        assert_eq!(stored["password"], "s3cret");
+        assert_eq!(stored["cipher"], 3);
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/servers/{id}/ipmi"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let json = body_json(resp).await;
+        assert_eq!(json["username"], "root");
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("DELETE")
+                    .uri(format!("/api/servers/{id}/ipmi"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/servers/{id}/ipmi"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let json = body_json(resp).await;
+        assert!(json["username"].is_null(), "cleared override: {json}");
+    }
+
+    #[tokio::test]
+    async fn effective_ipmi_creds_prefer_the_per_device_override() {
+        use crate::domain::NewServer;
+
+        let state = test_state().await;
+        let server = state
+            .servers
+            .create(NewServer {
+                primary_mac: Some("12:34:56:78:9a:bc".parse().unwrap()),
+                ipmi_mac: Some("12:34:56:78:9a:bd".parse().unwrap()),
+                friendly_name: "node".into(),
+                hostname: Some("node.lan".into()),
+                metadata: Default::default(),
+            })
+            .await
+            .unwrap();
+
+        // Nothing set: defaults, host from the ARP-discovered BMC address.
+        let creds = state.ipmi_creds(&server).await.unwrap();
+        assert_eq!(creds.username, state.config.ipmi_default_user);
+        assert_eq!(creds.password, state.config.ipmi_default_pass);
+        assert_eq!(creds.host, "10.0.0.5");
+
+        // A full override wins outright.
+        state
+            .servers
+            .set_ipmi_creds(
+                server.id,
+                IpmiCreds {
+                    host: "10.7.7.7".into(),
+                    username: "root".into(),
+                    password: "hunter2".into(),
+                    cipher: 17,
+                },
+            )
+            .await
+            .unwrap();
+        let creds = state.ipmi_creds(&server).await.unwrap();
+        assert_eq!(creds.host, "10.7.7.7");
+        assert_eq!(creds.username, "root");
+        assert_eq!(creds.password, "hunter2");
+        assert_eq!(creds.cipher, 17);
+
+        // A partial override falls back per field.
+        state
+            .servers
+            .set_ipmi_creds(
+                server.id,
+                IpmiCreds {
+                    host: "10.7.7.8".into(),
+                    username: String::new(),
+                    password: String::new(),
+                    cipher: 0,
+                },
+            )
+            .await
+            .unwrap();
+        let creds = state.ipmi_creds(&server).await.unwrap();
+        assert_eq!(creds.host, "10.7.7.8");
+        assert_eq!(creds.username, state.config.ipmi_default_user);
+        assert_eq!(creds.password, state.config.ipmi_default_pass);
+        assert_eq!(creds.cipher, state.config.ipmi_default_cipher);
+
+        // Clearing the override returns to the discovered host.
+        state.servers.delete_ipmi_creds(server.id).await.unwrap();
+        assert!(state.servers.get_ipmi_creds(server.id).await.unwrap().is_none());
+        let creds = state.ipmi_creds(&server).await.unwrap();
+        assert_eq!(creds.host, "10.0.0.5");
+        assert_eq!(creds.username, state.config.ipmi_default_user);
     }
 }

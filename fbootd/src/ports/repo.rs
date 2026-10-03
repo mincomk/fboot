@@ -21,6 +21,8 @@ pub trait ServerRepo: Send + Sync {
 
     async fn get_ipmi_creds(&self, id: Uuid) -> Result<Option<IpmiCreds>>;
     async fn set_ipmi_creds(&self, id: Uuid, creds: IpmiCreds) -> Result<()>;
+    /// Drop the per-server override so the server falls back to the configured defaults.
+    async fn delete_ipmi_creds(&self, id: Uuid) -> Result<()>;
 }
 
 #[async_trait]

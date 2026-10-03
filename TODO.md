@@ -10,3 +10,4 @@
 - [x] There's a lot place with "Power On" and "Power Off" toggle that changes by current power state (in dashboard card and server details sidebar etc). Make it two buttons each on off.
 
 - [x] In server info, there's only IP field. As there's two MAC field, make two IP fields.
+- [x] Per-device IPMI credentials (set when adding a server, or on the server's IPMI page)

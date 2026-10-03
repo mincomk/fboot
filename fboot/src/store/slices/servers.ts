@@ -81,6 +81,11 @@ export const saveIpmi = createAsyncThunk(
   },
 )
 
+export const clearIpmi = createAsyncThunk('servers/clearIpmi', async (id: string) => {
+  await api.servers.clearIpmi(id)
+  return id
+})
+
 export const fetchBootConfig = createAsyncThunk('servers/fetchBoot', (id: string) =>
   api.boot.get(id),
 )
@@ -172,6 +177,9 @@ const slice = createSlice({
       })
       .addCase(saveIpmi.fulfilled, (state, action) => {
         state.ipmi[action.payload.id] = action.payload.creds
+      })
+      .addCase(clearIpmi.fulfilled, (state, action) => {
+        state.ipmi[action.payload] = {}
       })
       .addCase(fetchBootConfig.fulfilled, (state, action) => {
         state.bootConfigs[action.payload.server_id] = action.payload

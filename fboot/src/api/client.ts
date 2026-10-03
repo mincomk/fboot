@@ -111,6 +111,7 @@ export function createApiClient(baseUrl: string, getToken?: GetToken, options: A
     getIpmi: (id: string) => request<IpmiCreds>(`/servers/${id}/ipmi`),
     setIpmi: (id: string, body: IpmiCreds) =>
       request<IpmiCreds>(`/servers/${id}/ipmi`, { method: 'PUT', body: json(body) }),
+    clearIpmi: (id: string) => request<void>(`/servers/${id}/ipmi`, { method: 'DELETE' }),
     power: (id: string, action: PowerAction) =>
       request<{ power: PowerStatus }>(`/servers/${id}/power`, { method: 'POST', body: json({ action }) }),
     setBootDev: (id: string, dev: BootDev) =>

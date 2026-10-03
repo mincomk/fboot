@@ -594,6 +594,19 @@ impl Fbootd {
         json_out(IpmiCredsOut::from(creds))
     }
 
+    #[tool(
+        description = "Clear a server's IPMI credential overrides so it falls back to the server-wide defaults"
+    )]
+    async fn clear_ipmi(
+        &self,
+        Parameters(req): Parameters<ServerIdReq>,
+    ) -> std::result::Result<CallToolResult, ErrorData> {
+        let id = parse_uuid(&req.server_id)?;
+        self.load_server(id).await?;
+        self.state.servers.delete_ipmi_creds(id).await?;
+        json_out(json!({ "cleared": id }))
+    }
+
     #[tool(description = "Render the linux iPXE script the daemon would serve this server at boot")]
     async fn get_ipxe(
         &self,
@@ -857,6 +870,7 @@ mod tests {
             "delete_server_metadata",
             "get_ipmi",
             "set_ipmi",
+            "clear_ipmi",
             "get_ipxe",
             "get_boot_defaults",
             "set_boot_defaults",
